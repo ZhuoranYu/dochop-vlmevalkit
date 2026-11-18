@@ -89,7 +89,10 @@ class DocHop(ImageVQADataset):
     def evaluate_heuristic(self, eval_file, **judge_kwargs):
         print(f"[{self.__class__.__name__}] Evaluating {eval_file} ...")
         df = load(eval_file)
-        
+        missing_columns = [column for column in ('answer', 'prediction') if column not in df.columns]
+        if missing_columns:
+            raise ValueError(f"{eval_file}: missing required column(s): {', '.join(missing_columns)}")
+
         # 1. Robust Task Column Detection
         # Check for common column names for 'Task'
         task_col = 'default'
@@ -107,15 +110,22 @@ class DocHop(ImageVQADataset):
         df['chart_num'] = df.get('chart_num', 'Unknown')
 
         results = []
-        for idx, row in df.iterrows():
-            gt = str(row.get('answer', ''))
-            pred = str(row.get('prediction', ''))
-            
-            clean_pred = extract_answer(pred) 
-            correct = _is_correct(gt, clean_pred)
-            
+        for row_number, (idx, row) in enumerate(df.iterrows(), start=1):
+            sample_index = row.get('index', idx)
+            answer = row['answer']
+            gt = '' if pd.isna(answer) else str(answer)
+            if not gt.strip():
+                raise ValueError(
+                    f"{eval_file}: missing or blank reference answer at row {row_number} (index={sample_index!r})"
+                )
+
+            prediction = row['prediction']
+            pred = '' if pd.isna(prediction) else str(prediction)
+            clean_pred = extract_answer(pred)
+            correct = bool(pred.strip()) and _is_correct(gt, clean_pred)
+
             results.append({
-                'index': row.get('index', idx),
+                'index': sample_index,
                 'example_id': row.get('example_id', ''),
                 'task': row[task_col],        # Normalized Task Column
                 'depth': row['depth'],        
